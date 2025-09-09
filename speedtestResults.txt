@@ -1,0 +1,2 @@
+Processed 24878638.0 title/text elements in 2570.50 seconds
+Average: 9678.50 title/text elements per second
