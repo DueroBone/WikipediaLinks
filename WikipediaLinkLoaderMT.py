@@ -15,12 +15,15 @@ import multiprocessing as mp
 
 
 class Site:
+    name: str
+    links: list[str]
+
     def __init__(self, name: str, links: list[str]):
         self.name = name
         """The name of the page."""
 
-        self.links: set[str] = set()
-        """A set to store links to other sites' names."""
+        self.links: list[str] = links
+        """A list to store links to other sites' names."""
 
 
 def loadXml(file_path: str, outputQueue: queue.Queue):
@@ -90,6 +93,7 @@ def deQueueAll(inputQueue: queue.Queue, outputList):
         item = inputQueue.get()
         for subItem in item:
             outputList.append(subItem)
+            # print(str(outputList[-1].name), str(outputList[-1].links))
 
 
 if __name__ == "__main__":
@@ -98,7 +102,6 @@ if __name__ == "__main__":
     numThreads = 1
     batchSize = 1000
     maxQueSize = batchSize * numThreads
-
 
     with Profile() as profile:
         startTime = time.time()
@@ -133,7 +136,9 @@ if __name__ == "__main__":
                 p.start()
 
             unloaderProcess = mp.Process(
-                target=deQueueAll, args=(resultsQueue, resultsList), name="UnloaderProcess"
+                target=deQueueAll,
+                args=(resultsQueue, resultsList),
+                name="UnloaderProcess",
             )
             unloaderProcess.start()
             lastResultSize = 0
@@ -146,8 +151,8 @@ if __name__ == "__main__":
                 else:
                     lastResultSameCount = 0
                 lastResultSize = resultSize
-                if lastResultSameCount >= 30:
-                    print("[Main] No new results for 10 seconds, shutting down.")
+                if lastResultSameCount >= 300:
+                    print("[Main] No new results for 30 seconds, shutting down.")
                     [p.kill() for p in workerProcesses]
                     batchProducerProcess.kill()
                     loaderProcess.kill()
@@ -155,7 +160,11 @@ if __name__ == "__main__":
                     raise KeyboardInterrupt
                     break
                 print(
-                    f"[Main] Raw XML Queue Size: {rawXmlQueue.qsize(): >3}, Batched Queue Size: {batchedQueue.qsize()}, Result Queue Size: {resultsQueue.qsize()}, Result list size {len(resultsList): >9} after {(time.time() - startTime):.2f} seconds"
+                    f"[Main] Raw XML Queue Size: {rawXmlQueue.qsize(): >3}, Batched Queue Size: {batchedQueue.qsize()\
+                    }, Result Queue Size: {resultsQueue.qsize()}, Result list size {\
+                    str(len(resultsList)): >9} after {(time.time() - startTime):.2f} seconds. {\
+                    len(resultsList) / 24878638 * 100:.3f}% done. Estimated time left: {\
+                    ((time.time() - startTime) / (len(resultsList) + 1) * (24878638 - len(resultsList)) / 60):.2f} minutes."
                 )
         except KeyboardInterrupt:
             pass
