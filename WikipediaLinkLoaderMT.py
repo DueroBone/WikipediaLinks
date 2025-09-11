@@ -1,6 +1,6 @@
 import xml.etree.ElementTree as ET
 import re
-import pickle
+import json
 import time
 from cProfile import Profile
 from pstats import SortKey, Stats
@@ -10,8 +10,6 @@ import os
 import multiprocessing as mp
 
 # TODO: Flag redirects
-# TODO: MULTI-THREADING
-# TODO: Potentially optimize functions
 
 
 class Site:
@@ -26,11 +24,17 @@ class Site:
         """A list to store links to other sites' names."""
 
 
-def loadXml(file_path: str, outputQueue: queue.Queue):
+def loadXml(file_path: str, outputQueue: queue.Queue, batchSize: int, numThreads: int):
+    batch = []
     for event, elem in ET.iterparse(file_path):
         if elem.tag[-5:] == "title" or elem.tag[-4:] == "text":
-            outputQueue.put((elem.tag, elem.text or ""))
+            batch.append((elem.tag, elem.text or ""))
             elem.clear()
+            if len(batch) >= batchSize:
+                outputQueue.put(batch)
+                batch = []
+    if batch:
+        outputQueue.put(batch)
     for _ in range(numThreads):
         outputQueue.put(None)  # Signal completion to workers
     print("[Loader] Finished reading XML.")
@@ -39,8 +43,7 @@ def loadXml(file_path: str, outputQueue: queue.Queue):
 def batchProducer(
     inputQueue: queue.Queue, outputQueue: queue.Queue, batchSize: int, numThreads: int
 ):
-    # Take in the input from inputQueue and produce batches
-    # grouped by pairs of title and text
+    # Now inputQueue gives batches of (tag, text) pairs
     batch = []
     lastTitle = ""
     while True:
@@ -53,14 +56,16 @@ def batchProducer(
             print("[BatchProducer] Shutting down.")
             break
 
-        if item[0][-5:] == "title":
-            lastTitle = item[1]
-        if item[0][-4:] == "text":
-            out = (lastTitle, item[1])
-            batch.append(out)
-        if len(batch) >= batchSize:
-            outputQueue.put(batch)  # send batch to workers
-            batch = []  # reset batch
+        # item is a batch of (tag, text) pairs
+        for tag, text in item:
+            if tag[-5:] == "title":
+                lastTitle = text
+            if tag[-4:] == "text":
+                out = (lastTitle, text)
+                batch.append(out)
+            if len(batch) >= batchSize:
+                outputQueue.put(batch)
+                batch = []
 
 
 def linkScanWorker(worker_id: int, inputQueue: queue.Queue, result_queue: queue.Queue):
@@ -88,17 +93,22 @@ def extractLinksFromText(text: str) -> list[str]:
     return links
 
 
-def deQueueAll(inputQueue: queue.Queue, outputList):
-    while True:
-        item = inputQueue.get()
-        for subItem in item:
-            outputList.append(subItem)
-            # print(str(outputList[-1].name), str(outputList[-1].links))
+def deQueueAll(inputQueue: queue.Queue, outputFilePath: str):
+    """
+    Streams results to a JSON file as {page_name: [links]} per line (JSONL format).
+    """
+    with open(outputFilePath, "w", encoding="utf-8") as f:
+        while True:
+            item = inputQueue.get()
+            if item is None:
+                break
+            for subItem in item:
+                # subItem is a Site object
+                json.dump({subItem.name: subItem.links}, f, ensure_ascii=False)
+                f.write("\n")
 
 
 if __name__ == "__main__":
-
-    # numThreads = int((os.cpu_count() or 8) / 2)
     numThreads = 1
     batchSize = 1000
     maxQueSize = batchSize * numThreads
@@ -109,11 +119,12 @@ if __name__ == "__main__":
         rawXmlQueue: queue.Queue = manager.Queue(maxsize=maxQueSize)
         batchedQueue: queue.Queue = manager.Queue()
         resultsQueue: queue.Queue = manager.Queue()
-        resultsList = manager.list()
+        outputFilePath = "wikipediaLinks.jsonl"
         try:
+
             loaderProcess = mp.Process(
                 target=loadXml,
-                args=("wikipedia.xml", rawXmlQueue),
+                args=("wikipedia.xml", rawXmlQueue, batchSize, numThreads),
                 name="LoaderProcess",
             )
             loaderProcess.start()
@@ -137,39 +148,17 @@ if __name__ == "__main__":
 
             unloaderProcess = mp.Process(
                 target=deQueueAll,
-                args=(resultsQueue, resultsList),
+                args=(resultsQueue, outputFilePath),
                 name="UnloaderProcess",
             )
             unloaderProcess.start()
-            lastResultSize = 0
-            lastResultSameCount = 0
             while True:
-                time.sleep(1)
-                resultSize = len(resultsList)
-                if resultSize == lastResultSize:
-                    lastResultSameCount += 1
-                else:
-                    lastResultSameCount = 0
-                lastResultSize = resultSize
-                if lastResultSameCount >= 300:
-                    print("[Main] No new results for 30 seconds, shutting down.")
-                    [p.kill() for p in workerProcesses]
-                    batchProducerProcess.kill()
-                    loaderProcess.kill()
-                    unloaderProcess.kill()
-                    raise KeyboardInterrupt
-                    break
+                time.sleep(5)
                 print(
                     f"[Main] Raw XML Queue Size: {rawXmlQueue.qsize(): >3}, Batched Queue Size: {batchedQueue.qsize()\
-                    }, Result Queue Size: {resultsQueue.qsize()}, Result list size {\
-                    str(len(resultsList)): >9} after {(time.time() - startTime):.2f} seconds. {\
-                    len(resultsList) / 24878638 * 100:.3f}% done. Estimated time left: {\
-                    ((time.time() - startTime) / (len(resultsList) + 1) * (24878638 - len(resultsList)) / 60):.2f} minutes."
+                    }, Result Queue Size: {resultsQueue.qsize()} after {(time.time() - startTime):.2f} seconds."
                 )
         except KeyboardInterrupt:
             pass
         print(f"Execution time: {time.time() - startTime} seconds")
-        newList = [site for site in resultsList]
-        pickle.dump(newList, open("wikipediaLinks.pkl", "wb"))
-
         Stats(profile).strip_dirs().sort_stats(SortKey.CUMULATIVE).print_stats()
