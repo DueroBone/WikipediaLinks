@@ -155,8 +155,7 @@ if __name__ == "__main__":
             while True:
                 time.sleep(5)
                 print(
-                    f"[Main] Raw XML Queue Size: {rawXmlQueue.qsize(): >3}, Batched Queue Size: {batchedQueue.qsize()\
-                    }, Result Queue Size: {resultsQueue.qsize()} after {(time.time() - startTime):.2f} seconds."
+                    f"[Main] Raw XML Queue Size: {rawXmlQueue.qsize(): >3}, Batched Queue Size: {batchedQueue.qsize()}, Result Queue Size: {resultsQueue.qsize()} after {(time.time() - startTime):.2f} seconds."
                 )
         except KeyboardInterrupt:
             pass
