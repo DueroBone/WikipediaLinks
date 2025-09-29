@@ -104,6 +104,7 @@ def deQueueAll(inputQueue: queue.Queue, outputFilePath: str):
                 break
             for subItem in item:
                 # subItem is a Site object
+                # print(f"Writing links for page: {subItem.name}, {subItem.links}")
                 json.dump({subItem.name: subItem.links}, f, ensure_ascii=False)
                 f.write("\n")
 
