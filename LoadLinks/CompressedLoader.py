@@ -20,8 +20,6 @@ import time
 from cProfile import Profile
 from pstats import SortKey, Stats
 import queue
-
-
 import io
 import bz2
 import multiprocessing as mp
@@ -31,16 +29,18 @@ class BZ2StreamWrapper(io.RawIOBase):
     def __init__(self, filename, encoding="utf-8"):
         self.filename = filename
         self.encoding = encoding
-        self.queue = mp.Queue(maxsize=100)  # buffer
+        self.queue = mp.Queue(maxsize=1000)  # buffer
         self.process = mp.Process(target=self._worker, args=(self.queue,))
         self.process.start()
         self._buffer = b""  # work in bytes
+        self._eof = False
 
     def _worker(self, queue):
         """Runs in a separate process, reads bz2 file and sends lines."""
+        blob_size = 8192
         try:
             with bz2.open(self.filename, "rb") as f:  # open in binary
-                for chunk in iter(lambda: f.read(8192), b""):
+                for chunk in iter(lambda: f.read(blob_size), b""):
                     queue.put(chunk)
         finally:
             queue.put(None)  # signal end of stream
@@ -48,11 +48,15 @@ class BZ2StreamWrapper(io.RawIOBase):
     def read(self, size=-1):
         """Provide file-like read(size)."""
         # Fill buffer until we have enough or EOF
+        if self._eof and not self._buffer:
+            return b""
+
         while size < 0 or len(self._buffer) < size:
             chunk = self.queue.get()
             if chunk is None:
-                break
-            self._buffer += chunk
+                self._eof = True
+                break  # EOF
+            self._buffer += chunk  # de-chunk and place in buffer
 
         if size < 0:  # read all
             data, self._buffer = self._buffer, b""
@@ -76,7 +80,10 @@ def loadXml(filePath: str, outputQueue: queue.Queue, batchSize: int, numWorkers:
         batch = []
         try:
             with BZ2StreamWrapper(filePath) as f:
+                # File loading occurs in background thread
                 context = ET.iterparse(f, events=("start", "end"))
+
+                # This thread will only parse XML and enqueue batches
                 _, root = next(context)  # get root element
                 current_page = {}
                 for event, elem in context:
@@ -145,9 +152,32 @@ def extractLinksFromText(text: str) -> list[str]:
     return links
 
 
+def clean_wikilink(link: str) -> str | None:
+    """
+    Clean a single wikilink and return the page title.
+    Returns None if the link should be discarded (files, categories, etc.).
+    """
+    # Only handle things that look like wikilinks
+    if not (link.startswith("[[") and link.endswith("]]")):
+        return None
+
+    # Strip outer brackets
+    link = link[2:-2].strip()
+
+    # Split at pipe '|' and keep the first part (actual target, not display text)
+    link = link.split("|")[0].strip()
+
+    # Exclude unwanted namespaces or junk
+    bad_prefixes = ("file:", "image:", "category:", "wikipedia:", "wp:", "template:")
+    if any(link.lower().startswith(prefix) for prefix in bad_prefixes):
+        return None
+
+    return link if link else None
+
+
 def deQueueAll(inputQueue: queue.Queue, outputFilePath: str):
     """
-    Streams results to a JSON file as {page_name: [links]} per line (JSONL format).
+    Streams cleaned results to a JSON file as {page_name: [links]} per line (JSONL format).
     """
     with open(outputFilePath, "w", encoding="utf-8") as f:
         while True:
@@ -155,10 +185,35 @@ def deQueueAll(inputQueue: queue.Queue, outputFilePath: str):
             if item is None:
                 break
             for subItem in item:
-                # subItem is a Site object
-                # print(f"Writing links for page: {subItem.name}, {subItem.links}")
-                json.dump({subItem.name: subItem.links}, f, ensure_ascii=False)
+                # Clean each link before writing
+                cleaned_links = []
+                for l in subItem.links:
+                    clean = clean_wikilink(l)
+                    if clean:
+                        cleaned_links.append(clean)
+
+                # Deduplicate
+                cleaned_links = list(set(cleaned_links))
+
+                # Write to file
+                json.dump({subItem.name: cleaned_links}, f, ensure_ascii=False)
                 f.write("\n")
+
+
+# def deQueueAll(inputQueue: queue.Queue, outputFilePath: str):
+#     """
+#     Streams results to a JSON file as {page_name: [links]} per line (JSONL format).
+#     """
+#     with open(outputFilePath, "w", encoding="utf-8") as f:
+#         while True:
+#             item = inputQueue.get()
+#             if item is None:
+#                 break
+#             for subItem in item:
+#                 # subItem is a Site object
+#                 # print(f"Writing links for page: {subItem.name}, {subItem.links}")
+#                 json.dump({subItem.name: subItem.links}, f, ensure_ascii=False)
+#                 f.write("\n")
 
 
 if __name__ == "__main__":

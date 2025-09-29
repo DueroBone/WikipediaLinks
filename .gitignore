@@ -1,3 +1,7 @@
 LoadLinks/Logs/linkScanner.txt
 LoadLinks/Logs/loadXml.txt
 LoadLinks/stats.log
+linksOutput.jsonl
+LinkConnector/linksOutput.jsonl
+LoadLinks/stats.log
+stats.log
