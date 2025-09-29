@@ -19,10 +19,7 @@ import json
 import time
 from cProfile import Profile
 from pstats import SortKey, Stats
-import sys
 import queue
-import os
-import WikipediaLinkLoaderMT
 
 
 import io
@@ -105,8 +102,10 @@ def loadXml(filePath: str, outputQueue: queue.Queue, batchSize: int, numWorkers:
                 root.clear()  # free memory
             outputQueue.put(batch)
             outputQueue.put("Done")  # signal completion to workers
-        except Exception as e:
+        except KeyboardInterrupt as e:
             pass
+        except Exception as e:
+            print(f"Error occurred in LoadXml: {e}")
         Stats(profile, stream=open("Logs/loadXml.txt", "a")).strip_dirs().sort_stats(
             SortKey.CUMULATIVE
         ).print_stats()
@@ -128,8 +127,10 @@ def linkScanWorker(inputQueue: queue.Queue, result_queue: queue.Queue):
                     site = Site(title, links)
                     batch_out.append(site)
                 result_queue.put(batch_out)
-        except Exception as e:
+        except KeyboardInterrupt as e:
             pass
+        except Exception as e:
+            print(f"Error occurred in LinkScanWorker: {e}")
         Stats(
             profile, stream=open("Logs/linkScanner.txt", "a")
         ).strip_dirs().sort_stats(SortKey.CUMULATIVE).print_stats()
@@ -142,6 +143,22 @@ def extractLinksFromText(text: str) -> list[str]:
     """
     links = re.findall(r"\[\[.*?\]\]", text or "")
     return links
+
+
+def deQueueAll(inputQueue: queue.Queue, outputFilePath: str):
+    """
+    Streams results to a JSON file as {page_name: [links]} per line (JSONL format).
+    """
+    with open(outputFilePath, "w", encoding="utf-8") as f:
+        while True:
+            item = inputQueue.get()
+            if item is None:
+                break
+            for subItem in item:
+                # subItem is a Site object
+                # print(f"Writing links for page: {subItem.name}, {subItem.links}")
+                json.dump({subItem.name: subItem.links}, f, ensure_ascii=False)
+                f.write("\n")
 
 
 if __name__ == "__main__":
@@ -192,7 +209,7 @@ if __name__ == "__main__":
         """
 
         unloaderProcess = mp.Process(
-            target=WikipediaLinkLoaderMT.deQueueAll,
+            target=deQueueAll,
             args=(resultsQueue, outputFilePath),
             name="UnloaderProcess",
         )
