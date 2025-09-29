@@ -1,6 +1,7 @@
 import json
 import networkx as nx
 import plotly.graph_objects as go
+import pickle
 
 
 # === Step 1: Load JSONL file into a graph ===
@@ -78,7 +79,7 @@ def visualize_graph(G: nx.DiGraph, max_nodes=100):
             colorscale="YlGnBu",
             size=10,
             # color=[H.degree for n in H.nodes()],
-            color=[H.degree(n) for n in H.nodes()],
+            color=[H.degree(n) for n in H.nodes()],  # type: ignore
             # color="#FFFFFF",
             colorbar=dict(thickness=15, title="Node Degree", xanchor="left"),
         ),
@@ -103,5 +104,10 @@ def visualize_graph(G: nx.DiGraph, max_nodes=100):
 if __name__ == "__main__":
     path = "linksOutput.jsonl"
     G = load_graph(path)
+    output_path = "wikipedia_graph.pkl"
+    with open(output_path, "wb") as f:
+        pickle.dump(G, f)
+    print(f"Graph saved to {output_path}")
+
     analyze_graph(G)
     visualize_graph(G)
