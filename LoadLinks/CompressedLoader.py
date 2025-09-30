@@ -13,6 +13,7 @@ class Site:
 import bz2
 import io
 import multiprocessing as mp
+import tracemalloc
 import xml.etree.ElementTree as ET
 import re
 import json
@@ -23,6 +24,7 @@ import queue
 import io
 import bz2
 import multiprocessing as mp
+import tracemalloc
 
 
 class BZ2StreamWrapper(io.RawIOBase):
@@ -77,6 +79,7 @@ def loadXml(filePath: str, outputQueue: queue.Queue, batchSize: int, numWorkers:
     Loads and parses the XML file, putting (name, text) tuples into the outputQueue.
     """
     with Profile() as profile:
+        tracemalloc.start()
         batch = []
         try:
             with BZ2StreamWrapper(filePath) as f:
@@ -85,31 +88,35 @@ def loadXml(filePath: str, outputQueue: queue.Queue, batchSize: int, numWorkers:
 
                 # This thread will only parse XML and enqueue batches
                 _, root = next(context)  # get root element
-                current_page = {}
+                current_page = ["", ""]
                 for event, elem in context:
                     if event == "end":
                         if elem.tag[-5:] == "title":
-                            current_page["title"] = elem.text
+                            current_page[0] = str(elem.text)
                         elif elem.tag[-4:] == "text":
-                            current_page["text"] = elem.text
+                            current_page[1] = str(elem.text)
                             page_data_tuple = (
-                                current_page["title"],
-                                current_page["text"],
+                                str(current_page[0][:]),
+                                str(current_page[1][:]),
                             )
                             # print(page_data_tuple)
-                            if current_page["title"] and current_page["text"]:
+                            if current_page[0] and current_page[1]:
                                 batch.append(page_data_tuple)
-                                current_page = {}
+                                current_page = ["", ""]
 
                                 if len(batch) >= batchSize:
                                     outputQueue.put(batch)
                                     batch = []
                             else:
                                 print(f"Skipping incomplete page: {current_page}")
+                    elem.clear()
                 root.clear()  # free memory
             outputQueue.put(batch)
             outputQueue.put("Done")  # signal completion to workers
         except KeyboardInterrupt as e:
+            current, peak = tracemalloc.get_traced_memory()
+            [print(x) for x in tracemalloc.take_snapshot().statistics("lineno")[:20]]
+            print(f"Current: {current / 1024**2:.2f} MB; Peak: {peak / 1024**2:.2f} MB")
             pass
         except Exception as e:
             print(f"Error occurred in LoadXml: {e}")
@@ -269,6 +276,7 @@ if __name__ == "__main__":
             name="UnloaderProcess",
         )
         unloaderProcess.start()
+        f = open("test.txt", "w+")
         while True:
             time.sleep(5)
             # continue
@@ -277,6 +285,7 @@ if __name__ == "__main__":
                 file=open("stats.log", "a"),
                 flush=True,
             )
+            f.read()
     except KeyboardInterrupt:
         pass
     print(f"Execution time: {time.time() - startTime} seconds")
