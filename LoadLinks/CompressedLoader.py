@@ -96,8 +96,8 @@ def loadXml(filePath: str, outputQueue: queue.Queue, batchSize: int, numWorkers:
                         elif elem.tag[-4:] == "text":
                             current_page[1] = str(elem.text)
                             page_data_tuple = (
-                                str(current_page[0][:]),
-                                str(current_page[1][:]),
+                                current_page[0],
+                                current_page[1],
                             )
                             # print(page_data_tuple)
                             if current_page[0] and current_page[1]:
@@ -109,7 +109,7 @@ def loadXml(filePath: str, outputQueue: queue.Queue, batchSize: int, numWorkers:
                                     batch = []
                             else:
                                 print(f"Skipping incomplete page: {current_page}")
-                    elem.clear()
+                    # elem.clear()
                 root.clear()  # free memory
             outputQueue.put(batch)
             outputQueue.put("Done")  # signal completion to workers
