@@ -1,18 +1,14 @@
 import bz2
 import io
 import multiprocessing as mp
-import tracemalloc
 import xml.etree.ElementTree as ET
 import re
 import json
 import time
-from cProfile import Profile
-from pstats import SortKey, Stats
 import queue
 import io
 import bz2
 import multiprocessing as mp
-import tracemalloc
 import pickle
 
 
@@ -72,53 +68,43 @@ def loadXml(inputFilePath: str, outputFilePath: str):
     """
     Loads and parses the XML file, putting (name, text) tuples into the outputQueue.
     """
-    with Profile() as profile:
-        tracemalloc.start()
-        try:
-            with BZ2StreamWrapper(inputFilePath) as f:
-                with open(outputFilePath, "w+", encoding="utf-8") as outputFile:
-                    # File loading occurs in background thread
-                    context = ET.iterparse(f, events=("start", "end"))
+    try:
+        with BZ2StreamWrapper(inputFilePath) as f:
+            with open(outputFilePath, "w+", encoding="utf-8") as outputFile:
+                # File loading occurs in background thread
+                context = ET.iterparse(f, events=("start", "end"))
 
-                    # This thread will only parse XML and enqueue batches
-                    _, root = next(context)  # get root element
-                    current_page: list[str] = ["", ""]  # title, text
-                    for event, elem in context:
-                        if event == "start":  # end
-                            # print(elem.tag)
-                            if elem.tag[-5:] == "title":
-                                current_page[0] = elem.text
-                            elif elem.tag[-4:] == "text":
-                                current_page[1] = elem.text
-                                if (
-                                    current_page[0]
-                                    and current_page[1]
-                                    and current_page[1][:9] != "#REDIRECT"
-                                ):
-                                    l = scanLinks(current_page)  # TODO
-                                    # json.dump(l, outputFile, ensure_ascii=False)
-                                    print(pickle.dumps(l), file=outputFile)
-                                    # outputFile.write("\n")
-                                    # outputFile.flush()
-                                    current_page = ["", ""]
+                # This thread will only parse XML and enqueue batches
+                _, root = next(context)  # get root element
+                current_page: list[str] = ["", ""]  # title, text
+                for event, elem in context:
+                    if event == "start":  # end
+                        # print(elem.tag)
+                        if elem.tag[-5:] == "title":
+                            current_page[0] = elem.text
+                        elif elem.tag[-4:] == "text":
+                            current_page[1] = elem.text
+                            if (
+                                current_page[0]
+                                and current_page[1]
+                                and current_page[1][:9] != "#REDIRECT"
+                            ):
+                                l = scanLinks(current_page)  # TODO
+                                # json.dump(l, outputFile, ensure_ascii=False)
+                                print(pickle.dumps(l), file=outputFile)
+                                # outputFile.write("\n")
+                                # outputFile.flush()
+                                current_page = ["", ""]
 
-                                elif current_page[0] or current_page[1]:
-                                    # print(f"Skipping incomplete page: {current_page}")
-                                    current_page = ["", ""]
-                                else:
-                                    pass  # empty page, skip
-                        elem.clear()
-                    root.clear()  # free memory
-        except KeyboardInterrupt as e:
-            current, peak = tracemalloc.get_traced_memory()
-            [print(x) for x in tracemalloc.take_snapshot().statistics("lineno")[:20]]
-            print(f"Current: {current / 1024**2:.2f} MB; Peak: {peak / 1024**2:.2f} MB")
-            pass
-        except Exception as e:
-            print(f"Error occurred in LoadXml: {e}")
-        Stats(profile, stream=open("Logs/loadXml.txt", "a")).strip_dirs().sort_stats(
-            SortKey.CUMULATIVE
-        ).print_stats()
+                            elif current_page[0] or current_page[1]:
+                                # print(f"Skipping incomplete page: {current_page}")
+                                current_page = ["", ""]
+                            else:
+                                pass  # empty page, skip
+                    elem.clear()
+                root.clear()  # free memory
+    except Exception as e:
+        print(f"Error occurred in LoadXml: {e}")
 
 
 def clean_wikilink(link: str) -> str | None:
