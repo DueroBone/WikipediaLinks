@@ -1,23 +1,23 @@
-import json
 import networkx as nx
-import plotly.graph_objects as go
+
+# import plotly.graph_objects as go
 import pickle
+import gzip
+import os
+import time
 
 
-# === Step 1: Load JSONL file into a graph ===
-def load_graph(jsonl_path: str) -> nx.DiGraph:
+def create_graph(pickle_path: str) -> nx.DiGraph:
     G = nx.DiGraph()  # directed graph (Page -> Links)
-    with open(jsonl_path, "r", encoding="utf-8") as f:
-        lineNum = 0
-        for line in f:
-            entry = json.loads(line)
-            page, links = next(iter(entry.items()))
+    with open(pickle_path, "rb") as f:
+        links_list = pickle.load(f)
+        for page, links in links_list:
             for link in links:
                 G.add_edge(page, link)
-            lineNum += 1
     return G
 
 
+"""
 # === Step 2: Basic analysis ===
 def analyze_graph(G: nx.DiGraph):
     print("Number of nodes:", G.number_of_nodes())
@@ -98,16 +98,38 @@ def visualize_graph(G: nx.DiGraph, max_nodes=100):
         ),
     )
     fig.show()
+"""
 
 
-# === Example usage ===
-if __name__ == "__main__":
-    path = "linksOutput.jsonl"
-    G = load_graph(path)
-    output_path = "wikipedia_graph.pkl"
+def load_and_save(load_graph, output_path):
+    input_path = "enwiki_links_list.pkl"
+    # Encapsulated in function so G is not kept in memory
+    print("Generating graph...")
+    G = load_graph(input_path)
+    print("Graph loaded. Saving to disk...")
     with open(output_path, "wb") as f:
         pickle.dump(G, f)
-    print(f"Graph saved to {output_path}")
 
-    analyze_graph(G)
-    visualize_graph(G)
+
+def full_save():
+    output_path = "wikipedia_graph.pkl"
+    load_and_save(create_graph, output_path)
+    print(f"Temp graph saved to {output_path}. Compressing...")
+
+    gzipped_output_path = "wikipedia_graph.pkl.gz"
+    with open(output_path, "rb") as f_in:
+        with gzip.open(gzipped_output_path, "wb") as f_out:
+            f_out.writelines(f_in)
+    os.remove(output_path)
+
+    print(f"Gzipped graph saved to {gzipped_output_path}")
+    print()
+
+
+if __name__ == "__main__":
+    start_time = time.time()
+    G = pickle.load(open("wikipedia_graph.pkl", "rb"))
+    print(
+        f"Graph loaded from wikipedia_graph.pkl in {time.time() - start_time:.2f} seconds"
+    )
+    pass

@@ -94,10 +94,6 @@ if __name__ == "__main__":
         print(f"Execution time: {time.time() - startTime} seconds")
         pickle.dump(results, open("wikipediaLinks.pkl", "wb"))
 
-        (Stats(profile)
-        .strip_dirs()
-        .sort_stats(SortKey.CUMULATIVE)
-        .print_stats()
-        )
+        (Stats(profile).strip_dirs().sort_stats(SortKey.CUMULATIVE).print_stats())
     while True:
         continue
